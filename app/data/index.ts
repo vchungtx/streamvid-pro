@@ -1,4 +1,3 @@
-// ===== APP/DATA/INDEX.TS (UPDATED) =====
 import { Video, Category } from '../types'
 
 export const sampleVideos: Video[] = [
@@ -9,6 +8,7 @@ export const sampleVideos: Video[] = [
         views: "2.1M",
         duration: "45:30",
         thumbnail: "🦋",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
         description: "Explore the wonders of wildlife and natural habitats"
     },
     {
@@ -18,6 +18,7 @@ export const sampleVideos: Video[] = [
         views: "892K",
         duration: "32:15",
         thumbnail: "🤖",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
         description: "Latest breakthrough technologies and innovations"
     },
     {
@@ -27,6 +28,7 @@ export const sampleVideos: Video[] = [
         views: "5.2M",
         duration: "28:45",
         thumbnail: "🏆",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
         description: "Best moments from the world cup tournament"
     },
     {
@@ -36,6 +38,7 @@ export const sampleVideos: Video[] = [
         views: "1.4M",
         duration: "52:20",
         thumbnail: "🍳",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
         description: "Learn professional cooking techniques"
     },
     {
@@ -45,6 +48,7 @@ export const sampleVideos: Video[] = [
         views: "3.8M",
         duration: "41:10",
         thumbnail: "🚀",
+        videoUrl: "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8",
         description: "Journey through the cosmos and space missions"
     },
     {
@@ -54,6 +58,7 @@ export const sampleVideos: Video[] = [
         views: "967K",
         duration: "35:55",
         thumbnail: "🏅",
+        videoUrl: "https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8",
         description: "Esports tournament highlights and gameplay"
     },
     {
@@ -63,6 +68,7 @@ export const sampleVideos: Video[] = [
         views: "4.7M",
         duration: "1:25:30",
         thumbnail: "🎤",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
         description: "Epic live performances from top artists"
     },
     {
@@ -72,6 +78,7 @@ export const sampleVideos: Video[] = [
         views: "1.8M",
         duration: "38:15",
         thumbnail: "💪",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4",
         description: "Complete workout guide for beginners"
     },
     {
@@ -81,6 +88,7 @@ export const sampleVideos: Video[] = [
         views: "750K",
         duration: "47:20",
         thumbnail: "🎨",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
         description: "Master digital painting techniques"
     },
     {
@@ -90,6 +98,7 @@ export const sampleVideos: Video[] = [
         views: "2.9M",
         duration: "29:45",
         thumbnail: "✈️",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4",
         description: "Exploring hidden gems around the world"
     },
     {
@@ -99,6 +108,7 @@ export const sampleVideos: Video[] = [
         views: "1.2M",
         duration: "34:10",
         thumbnail: "🧬",
+        videoUrl: "https://bitdash-a.akamaihd.net/content/MI201109210084_1/m3u8s/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.m3u8",
         description: "Latest discoveries in quantum physics"
     },
     {
@@ -108,6 +118,7 @@ export const sampleVideos: Video[] = [
         views: "3.5M",
         duration: "42:30",
         thumbnail: "🌮",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
         description: "Taste the best street food worldwide"
     },
     {
@@ -117,6 +128,7 @@ export const sampleVideos: Video[] = [
         views: "680K",
         duration: "1:15:45",
         thumbnail: "🎭",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
         description: "Broadway's best musical performances"
     },
     {
@@ -126,6 +138,7 @@ export const sampleVideos: Video[] = [
         views: "1.9M",
         duration: "36:20",
         thumbnail: "🏡",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
         description: "Transform your living space with style"
     },
     {
@@ -135,6 +148,7 @@ export const sampleVideos: Video[] = [
         views: "2.3M",
         duration: "28:30",
         thumbnail: "🚗",
+        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
         description: "Latest electric vehicle innovations"
     }
 ]

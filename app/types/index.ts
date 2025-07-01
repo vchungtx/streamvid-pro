@@ -5,6 +5,7 @@ export interface Video {
     views: string
     duration: string
     thumbnail: string
+    videoUrl?: string // ✅ Added video URL support
     description?: string
 }
 

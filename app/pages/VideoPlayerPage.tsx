@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Play, Pause, SkipBack, SkipForward, Heart, Share2, MessageCircle, Send, Volume2, VolumeX, Maximize, Settings } from 'lucide-react'
 import { useApp } from '../context/AppContext'
@@ -17,17 +17,20 @@ interface Comment {
 }
 
 export default function VideoPlayerPage() {
+    const videoRef = useRef<HTMLVideoElement>(null)
     const [currentVideo, setCurrentVideo] = useState<Video | null>(null)
-    const [isPlaying, setIsPlaying] = useState(true)
+    const [isPlaying, setIsPlaying] = useState(false)
     const [isLiked, setIsLiked] = useState(false)
     const [likes, setLikes] = useState(127)
     const [comment, setComment] = useState('')
     const [isMuted, setIsMuted] = useState(false)
-    const [volume, setVolume] = useState(75)
+    const [volume, setVolume] = useState(0.7)
     const [currentTime, setCurrentTime] = useState(0)
-    const [duration, setDuration] = useState(100)
+    const [duration, setDuration] = useState(0)
     const [isFullscreen, setIsFullscreen] = useState(false)
     const [showControls, setShowControls] = useState(true)
+    const [isLoading, setIsLoading] = useState(false)
+    const [videoError, setVideoError] = useState<string | null>(null)
     const [comments, setComments] = useState<Comment[]>([
         {
             id: 1,
@@ -55,30 +58,15 @@ export default function VideoPlayerPage() {
 
     // Auto-hide controls after 3 seconds
     useEffect(() => {
-        if (showControls) {
+        if (showControls && isPlaying) {
             const timer = setTimeout(() => {
                 setShowControls(false)
             }, 3000)
             return () => clearTimeout(timer)
         }
-    }, [showControls])
+    }, [showControls, isPlaying])
 
-    // Progress bar simulation
-    useEffect(() => {
-        if (isPlaying) {
-            const interval = setInterval(() => {
-                setCurrentTime(prev => {
-                    if (prev >= duration) {
-                        setIsPlaying(false)
-                        return duration
-                    }
-                    return prev + 1
-                })
-            }, 1000)
-            return () => clearInterval(interval)
-        }
-    }, [isPlaying, duration])
-
+    // Initialize video and HLS support
     useEffect(() => {
         const videoData = sessionStorage.getItem('currentVideo')
         if (videoData) {
@@ -86,52 +74,166 @@ export default function VideoPlayerPage() {
             setCurrentVideo(video)
             setIsLiked(user.favorites.includes(video.id))
 
-            // Convert duration to seconds for progress bar
-            const [minutes, seconds] = video.duration.split(':').map(Number)
-            setDuration((minutes * 60) + seconds)
-
             // Add to view history
             if (!user.viewHistory.includes(video.id)) {
                 updateUser({
                     viewHistory: [...user.viewHistory, video.id]
                 })
             }
+
+            // Load video if URL exists
+            if (video.videoUrl && videoRef.current) {
+                loadVideo(video.videoUrl)
+            }
         }
     }, [user.favorites, user.viewHistory, updateUser])
 
-    const handleBack = () => {
-        setCurrentPage('discover')
+    // HLS/M3U8 Video Loading Function
+    const loadVideo = async (videoUrl: string) => {
+        if (!videoRef.current) return
+
+        setIsLoading(true)
+        setVideoError(null)
+
+        try {
+            const video = videoRef.current
+
+            // Check if it's an M3U8 file
+            if (videoUrl.includes('.m3u8')) {
+                // Try to use HLS.js for M3U8 support
+                if (typeof window !== 'undefined') {
+                    const { default: Hls } = await import('hls.js')
+
+                    if (Hls.isSupported()) {
+                        const hls = new Hls({
+                            enableWorker: true,
+                            lowLatencyMode: true,
+                        })
+
+                        hls.loadSource(videoUrl)
+                        hls.attachMedia(video)
+
+                        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                            setIsLoading(false)
+                            showNotification('🎬 Video loaded successfully!', 'success')
+                        })
+
+                        hls.on(Hls.Events.ERROR, (event, data) => {
+                            console.error('HLS Error:', data)
+                            setVideoError('Failed to load video stream')
+                            setIsLoading(false)
+                            showNotification('❌ Failed to load video', 'error')
+                        })
+
+                        // Store HLS instance for cleanup
+                        ;(video as any).hls = hls
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        // Native HLS support (Safari)
+                        video.src = videoUrl
+                        setIsLoading(false)
+                    } else {
+                        setVideoError('HLS not supported in this browser')
+                        setIsLoading(false)
+                    }
+                }
+            } else {
+                // Regular video file (MP4, WebM, etc.)
+                video.src = videoUrl
+                setIsLoading(false)
+            }
+        } catch (error) {
+            console.error('Video loading error:', error)
+            setVideoError('Failed to load video')
+            setIsLoading(false)
+            showNotification('❌ Video loading failed', 'error')
+        }
     }
 
-    const togglePlay = () => {
-        setIsPlaying(!isPlaying)
-        showNotification(isPlaying ? '⏸️ Video paused' : '▶️ Video playing', 'info')
+    // Video event handlers
+    const handlePlay = () => {
+        if (!videoRef.current) return
+
+        if (isPlaying) {
+            videoRef.current.pause()
+        } else {
+            const playPromise = videoRef.current.play()
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    console.error('Play failed:', error)
+                    showNotification('❌ Failed to play video', 'error')
+                })
+            }
+        }
         setShowControls(true)
     }
 
-    const toggleMute = () => {
-        setIsMuted(!isMuted)
-        showNotification(isMuted ? '🔊 Sound on' : '🔇 Sound off', 'info')
+    const handleTimeUpdate = () => {
+        if (videoRef.current) {
+            setCurrentTime(videoRef.current.currentTime)
+        }
+    }
+
+    const handleLoadedMetadata = () => {
+        if (videoRef.current) {
+            setDuration(videoRef.current.duration)
+        }
+    }
+
+    const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newTime = parseFloat(e.target.value)
+        if (videoRef.current) {
+            videoRef.current.currentTime = newTime
+            setCurrentTime(newTime)
+        }
         setShowControls(true)
     }
 
     const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const newVolume = parseInt(e.target.value)
+        const newVolume = parseFloat(e.target.value) / 100
         setVolume(newVolume)
+        if (videoRef.current) {
+            videoRef.current.volume = newVolume
+        }
         setIsMuted(newVolume === 0)
         setShowControls(true)
     }
 
-    const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const newTime = parseInt(e.target.value)
-        setCurrentTime(newTime)
+    const toggleMute = () => {
+        if (videoRef.current) {
+            if (isMuted) {
+                videoRef.current.volume = volume
+                setIsMuted(false)
+                showNotification('🔊 Sound on', 'info')
+            } else {
+                videoRef.current.volume = 0
+                setIsMuted(true)
+                showNotification('🔇 Sound off', 'info')
+            }
+        }
         setShowControls(true)
     }
 
     const toggleFullscreen = () => {
-        setIsFullscreen(!isFullscreen)
-        showNotification(isFullscreen ? '📱 Exit fullscreen' : '📺 Fullscreen mode', 'info')
+        if (videoRef.current) {
+            if (document.fullscreenElement) {
+                document.exitFullscreen()
+                setIsFullscreen(false)
+                showNotification('📱 Exit fullscreen', 'info')
+            } else {
+                videoRef.current.requestFullscreen()
+                setIsFullscreen(true)
+                showNotification('📺 Fullscreen mode', 'info')
+            }
+        }
         setShowControls(true)
+    }
+
+    const handleBack = () => {
+        // Cleanup HLS instance if exists
+        if (videoRef.current && (videoRef.current as any).hls) {
+            (videoRef.current as any).hls.destroy()
+        }
+        setCurrentPage('discover')
     }
 
     const toggleLike = () => {
@@ -161,7 +263,6 @@ export default function VideoPlayerPage() {
                 title: currentVideo?.title,
                 url: shareLink
             }).catch(() => {
-                // Fallback to clipboard
                 navigator.clipboard.writeText(shareLink).then(() => {
                     showNotification('🔗 Video link copied to clipboard!', 'success')
                 })
@@ -193,17 +294,16 @@ export default function VideoPlayerPage() {
 
     const handlePreviousVideo = () => {
         showNotification('⏮️ Previous video', 'info')
-        // Here you could implement actual previous video logic
     }
 
     const handleNextVideo = () => {
         showNotification('⏭️ Next video', 'info')
-        // Here you could implement actual next video logic
     }
 
     const formatTime = (seconds: number) => {
+        if (isNaN(seconds)) return '0:00'
         const mins = Math.floor(seconds / 60)
-        const secs = seconds % 60
+        const secs = Math.floor(seconds % 60)
         return `${mins}:${secs.toString().padStart(2, '0')}`
     }
 
@@ -260,32 +360,61 @@ export default function VideoPlayerPage() {
                 onMouseEnter={() => setShowControls(true)}
                 onMouseLeave={() => setTimeout(() => setShowControls(false), 1000)}
             >
-                {/* Video Display */}
-                <div
-                    className={`relative bg-gradient-to-br from-slate-800 via-purple-900 to-slate-800 flex items-center justify-center cursor-pointer ${
-                        isFullscreen ? 'h-screen' : 'h-96 md:h-[500px]'
-                    }`}
-                    onClick={togglePlay}
-                >
-                    <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 via-purple-500/20 to-pink-500/20" />
-
-                    {/* Video Content */}
-                    <div className="relative z-10 text-center">
-                        <div className={`mb-4 ${isFullscreen ? 'text-9xl' : 'text-8xl'}`}>
-                            {currentVideo.thumbnail}
+                {/* Video Element or Fallback */}
+                <div className={`relative ${isFullscreen ? 'h-screen' : 'h-96 md:h-[500px]'}`}>
+                    {currentVideo.videoUrl && !videoError ? (
+                        <video
+                            ref={videoRef}
+                            className="w-full h-full object-contain bg-black cursor-pointer"
+                            onTimeUpdate={handleTimeUpdate}
+                            onLoadedMetadata={handleLoadedMetadata}
+                            onPlay={() => setIsPlaying(true)}
+                            onPause={() => setIsPlaying(false)}
+                            onError={(e) => {
+                                console.error('Video error:', e)
+                                setVideoError('Failed to load video')
+                                showNotification('❌ Video playback error', 'error')
+                            }}
+                            onClick={handlePlay}
+                            playsInline
+                            controls={false}
+                        />
+                    ) : (
+                        // Fallback display for no video URL or error
+                        <div
+                            className="w-full h-full bg-gradient-to-br from-slate-800 via-purple-900 to-slate-800 flex items-center justify-center cursor-pointer"
+                            onClick={handlePlay}
+                        >
+                            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 via-purple-500/20 to-pink-500/20" />
+                            <div className="relative z-10 text-center">
+                                <div className={`mb-4 ${isFullscreen ? 'text-9xl' : 'text-8xl'}`}>
+                                    {currentVideo.thumbnail}
+                                </div>
+                                <h2 className={`font-bold text-white/90 ${isFullscreen ? 'text-4xl' : 'text-2xl'}`}>
+                                    {videoError ? 'Video Unavailable' : 'Premium Video Player'}
+                                </h2>
+                                <p className="text-white/70 mt-2">
+                                    {videoError ? '❌ ' + videoError : (isPlaying ? '🎬 Playing...' : '⏸️ Paused')}
+                                </p>
+                            </div>
                         </div>
-                        <h2 className={`font-bold text-white/90 ${isFullscreen ? 'text-4xl' : 'text-2xl'}`}>
-                            Premium Video Player
-                        </h2>
-                        <p className="text-white/70 mt-2">
-                            {isPlaying ? '🎬 Playing...' : '⏸️ Paused'}
-                        </p>
-                    </div>
+                    )}
+
+                    {/* Loading Overlay */}
+                    {isLoading && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                            <div className="text-center">
+                                <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                                <p className="text-white">Loading video...</p>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Play/Pause Overlay */}
-                    {!isPlaying && (
+                    {!isPlaying && !isLoading && (
                         <motion.div
-                            className="absolute inset-0 flex items-center justify-center bg-black/30"
+                            className="absolute inset-0 flex items-center justify-center bg-black/30 cursor-pointer"
+                            onClick={handlePlay}
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
@@ -309,12 +438,12 @@ export default function VideoPlayerPage() {
                             <input
                                 type="range"
                                 min="0"
-                                max={duration}
+                                max={duration || 100}
                                 value={currentTime}
                                 onChange={handleProgressChange}
                                 className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer slider"
                                 style={{
-                                    background: `linear-gradient(to right, #667eea 0%, #667eea ${(currentTime / duration) * 100}%, rgba(255,255,255,0.2) ${(currentTime / duration) * 100}%, rgba(255,255,255,0.2) 100%)`
+                                    background: `linear-gradient(to right, #667eea 0%, #667eea ${duration ? (currentTime / duration) * 100 : 0}%, rgba(255,255,255,0.2) ${duration ? (currentTime / duration) * 100 : 0}%, rgba(255,255,255,0.2) 100%)`
                                 }}
                             />
                             <div className="flex justify-between text-sm text-white/70 mt-1">
@@ -336,7 +465,7 @@ export default function VideoPlayerPage() {
                                 </motion.button>
 
                                 <motion.button
-                                    onClick={togglePlay}
+                                    onClick={handlePlay}
                                     className="p-3 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full hover:from-purple-600 hover:to-pink-500 transition-all"
                                     whileHover={{ scale: 1.1 }}
                                     whileTap={{ scale: 0.9 }}
@@ -367,7 +496,7 @@ export default function VideoPlayerPage() {
                                         type="range"
                                         min="0"
                                         max="100"
-                                        value={isMuted ? 0 : volume}
+                                        value={isMuted ? 0 : volume * 100}
                                         onChange={handleVolumeChange}
                                         className="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer"
                                     />
@@ -409,7 +538,7 @@ export default function VideoPlayerPage() {
                         <h1 className="text-2xl md:text-3xl font-bold mb-2">{currentVideo.title}</h1>
                         <div className="flex items-center space-x-6 text-white/70">
                             <span>👁️ {currentVideo.views} views</span>
-                            <span>⏱️ {currentVideo.duration}</span>
+                            <span>⏱️ {formatTime(duration) || currentVideo.duration}</span>
                             <span>📂 {currentVideo.category}</span>
                         </div>
                     </div>
@@ -502,8 +631,8 @@ export default function VideoPlayerPage() {
                                 <div className="flex items-center space-x-2 mb-1">
                                     <span className="font-semibold text-blue-400">{commentItem.author}</span>
                                     <span className="text-xs text-white/50">
-                    {getRelativeTime(commentItem.timestamp)}
-                  </span>
+                                        {getRelativeTime(commentItem.timestamp)}
+                                    </span>
                                 </div>
                                 <p className="text-white/80 leading-relaxed">{commentItem.text}</p>
 
