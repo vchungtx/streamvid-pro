@@ -1,39 +1,40 @@
+// ===== SIMPLE & SAFE NEXT.CONFIG.JS =====
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // ✅ Basic settings only
   images: {
-    domains: ["example.com"], // Add your image domains here
-    formats: ["image/webp", "image/avif"],
+    domains: [
+      'localhost',
+      'commondatastorage.googleapis.com',
+      'bitdash-a.akamaihd.net'
+    ],
   },
-  async redirects() {
-    return [
-      {
-        source: "/home",
-        destination: "/",
-        permanent: true,
-      },
-    ];
-  },
+
+  // ✅ Basic headers for video streaming
   async headers() {
     return [
       {
-        source: "/(.*)",
+        source: '/(.*)',
         headers: [
           {
-            key: "X-Frame-Options",
-            value: "DENY",
-          },
-          {
-            key: "X-Content-Type-Options",
-            value: "nosniff",
-          },
-          {
-            key: "Referrer-Policy",
-            value: "origin-when-cross-origin",
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
           },
         ],
       },
-    ];
+    ]
   },
-};
 
-module.exports = nextConfig;
+  // ✅ Simple webpack config
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+      }
+    }
+    return config
+  },
+}
+
+module.exports = nextConfig

@@ -8,6 +8,21 @@ import { useAuth } from '../context/AuthContext'
 import { useNotification } from '../components/NotificationProvider'
 import { Video } from '../types'
 
+// ✅ Production-safe HLS import
+let Hls: any = null
+if (typeof window !== 'undefined') {
+    try {
+        // Try static import first
+        import('hls.js').then(module => {
+            Hls = module.default
+        }).catch(() => {
+            console.warn('HLS.js not available')
+        })
+    } catch (error) {
+        console.warn('HLS.js import failed:', error)
+    }
+}
+
 interface Comment {
     id: number
     author: string
@@ -18,6 +33,7 @@ interface Comment {
 
 export default function VideoPlayerPage() {
     const videoRef = useRef<HTMLVideoElement>(null)
+    const hlsRef = useRef<any>(null)
     const [currentVideo, setCurrentVideo] = useState<Video | null>(null)
     const [isPlaying, setIsPlaying] = useState(false)
     const [isLiked, setIsLiked] = useState(false)
@@ -31,24 +47,25 @@ export default function VideoPlayerPage() {
     const [showControls, setShowControls] = useState(true)
     const [isLoading, setIsLoading] = useState(false)
     const [videoError, setVideoError] = useState<string | null>(null)
+    const [hlsLoaded, setHlsLoaded] = useState(false)
     const [comments, setComments] = useState<Comment[]>([
         {
             id: 1,
             author: 'User ****1234',
             text: 'Amazing content! Really enjoyed watching this. The quality is fantastic! 🔥',
-            timestamp: new Date(Date.now() - 3600000) // 1 hour ago
+            timestamp: new Date(Date.now() - 3600000)
         },
         {
             id: 2,
             author: 'User ****5678',
             text: 'Great video! Thanks for sharing this awesome content. Looking forward to more! ✨',
-            timestamp: new Date(Date.now() - 7200000) // 2 hours ago
+            timestamp: new Date(Date.now() - 7200000)
         },
         {
             id: 3,
             author: 'User ****9012',
             text: 'This is exactly what I was looking for. Perfect explanation and great visuals! 👍',
-            timestamp: new Date(Date.now() - 10800000) // 3 hours ago
+            timestamp: new Date(Date.now() - 10800000)
         }
     ])
 
@@ -56,7 +73,27 @@ export default function VideoPlayerPage() {
     const { user, updateUser } = useAuth()
     const { showNotification } = useNotification()
 
-    // Auto-hide controls after 3 seconds
+    // ✅ Load HLS.js dynamically for production
+    useEffect(() => {
+        const loadHls = async () => {
+            if (typeof window === 'undefined') return
+
+            try {
+                if (!Hls) {
+                    const hlsModule = await import('hls.js')
+                    Hls = hlsModule.default
+                }
+                setHlsLoaded(true)
+            } catch (error) {
+                console.warn('Failed to load HLS.js:', error)
+                setHlsLoaded(false)
+            }
+        }
+
+        loadHls()
+    }, [])
+
+    // Auto-hide controls
     useEffect(() => {
         if (showControls && isPlaying) {
             const timer = setTimeout(() => {
@@ -66,7 +103,7 @@ export default function VideoPlayerPage() {
         }
     }, [showControls, isPlaying])
 
-    // Initialize video and HLS support
+    // Initialize video
     useEffect(() => {
         const videoData = sessionStorage.getItem('currentVideo')
         if (videoData) {
@@ -74,21 +111,35 @@ export default function VideoPlayerPage() {
             setCurrentVideo(video)
             setIsLiked(user.favorites.includes(video.id))
 
-            // Add to view history
             if (!user.viewHistory.includes(video.id)) {
                 updateUser({
                     viewHistory: [...user.viewHistory, video.id]
                 })
             }
 
-            // Load video if URL exists
+            // Load video after HLS is ready
             if (video.videoUrl && videoRef.current) {
-                loadVideo(video.videoUrl)
+                // Delay loading to ensure HLS is available
+                setTimeout(() => loadVideo(video.videoUrl), 1000)
             }
         }
-    }, [user.favorites, user.viewHistory, updateUser])
+    }, [user.favorites, user.viewHistory, updateUser, hlsLoaded])
 
-    // HLS/M3U8 Video Loading Function
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (hlsRef.current) {
+                try {
+                    hlsRef.current.destroy()
+                } catch (e) {
+                    console.warn('HLS cleanup error:', e)
+                }
+                hlsRef.current = null
+            }
+        }
+    }, [])
+
+    // ✅ Production-safe video loading
     const loadVideo = async (videoUrl: string) => {
         if (!videoRef.current) return
 
@@ -98,18 +149,31 @@ export default function VideoPlayerPage() {
         try {
             const video = videoRef.current
 
-            // Check if it's an M3U8 file
-            if (videoUrl.includes('.m3u8')) {
-                // Try to use HLS.js for M3U8 support
-                if (typeof window !== 'undefined') {
-                    const { default: Hls } = await import('hls.js')
+            // Clean up previous HLS
+            if (hlsRef.current) {
+                try {
+                    hlsRef.current.destroy()
+                } catch (e) {
+                    console.warn('HLS destroy error:', e)
+                }
+                hlsRef.current = null
+            }
 
-                    if (Hls.isSupported()) {
+            // Check if M3U8
+            if (videoUrl.includes('.m3u8')) {
+                // ✅ Production-safe HLS handling
+                if (Hls && Hls.isSupported()) {
+                    try {
                         const hls = new Hls({
-                            enableWorker: true,
-                            lowLatencyMode: true,
+                            enableWorker: false, // ✅ Disable worker for production
+                            lowLatencyMode: false,
+                            backBufferLength: 30,
+                            xhrSetup: (xhr: XMLHttpRequest) => {
+                                xhr.withCredentials = false
+                            }
                         })
 
+                        hlsRef.current = hls
                         hls.loadSource(videoUrl)
                         hls.attachMedia(video)
 
@@ -118,29 +182,45 @@ export default function VideoPlayerPage() {
                             showNotification('🎬 Video loaded successfully!', 'success')
                         })
 
-                        hls.on(Hls.Events.ERROR, (event, data) => {
+                        hls.on(Hls.Events.ERROR, (event: any, data: any) => {
                             console.error('HLS Error:', data)
-                            setVideoError('Failed to load video stream')
-                            setIsLoading(false)
-                            showNotification('❌ Failed to load video', 'error')
+                            if (data.fatal) {
+                                // ✅ Fallback to direct video URL
+                                video.src = videoUrl
+                                setIsLoading(false)
+                                showNotification('⚠️ Using fallback player', 'warning')
+                            }
                         })
-
-                        // Store HLS instance for cleanup
-                        ;(video as any).hls = hls
-                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                        // Native HLS support (Safari)
+                    } catch (hlsError) {
+                        console.error('HLS initialization error:', hlsError)
+                        // ✅ Fallback to native video
                         video.src = videoUrl
                         setIsLoading(false)
-                    } else {
-                        setVideoError('HLS not supported in this browser')
-                        setIsLoading(false)
                     }
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Native HLS support (Safari)
+                    video.src = videoUrl
+                    setIsLoading(false)
+                } else {
+                    // ✅ Try direct URL as fallback
+                    video.src = videoUrl
+                    setIsLoading(false)
+                    showNotification('⚠️ HLS not supported, using direct stream', 'warning')
                 }
             } else {
-                // Regular video file (MP4, WebM, etc.)
+                // Regular video file
                 video.src = videoUrl
+                video.load()
                 setIsLoading(false)
             }
+
+            // ✅ Add error handler
+            video.onerror = () => {
+                setVideoError('Failed to load video')
+                setIsLoading(false)
+                showNotification('❌ Video loading failed', 'error')
+            }
+
         } catch (error) {
             console.error('Video loading error:', error)
             setVideoError('Failed to load video')
@@ -149,39 +229,50 @@ export default function VideoPlayerPage() {
         }
     }
 
-    // Video event handlers
-    const handlePlay = () => {
+    // ✅ Enhanced play handler for production
+    const handlePlay = async () => {
         if (!videoRef.current) return
 
-        if (isPlaying) {
-            videoRef.current.pause()
-        } else {
-            const playPromise = videoRef.current.play()
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.error('Play failed:', error)
-                    showNotification('❌ Failed to play video', 'error')
-                })
+        try {
+            if (isPlaying) {
+                videoRef.current.pause()
+            } else {
+                // ✅ Handle production autoplay restrictions
+                const playPromise = videoRef.current.play()
+                if (playPromise !== undefined) {
+                    await playPromise.catch(error => {
+                        console.warn('Autoplay prevented:', error)
+                        showNotification('🔇 Click to enable sound and play', 'info')
+                        // Try muted autoplay
+                        if (videoRef.current) {
+                            videoRef.current.muted = true
+                            return videoRef.current.play()
+                        }
+                    })
+                }
             }
+            setShowControls(true)
+        } catch (error) {
+            console.error('Play failed:', error)
+            showNotification('❌ Playback failed. Try clicking play again.', 'warning')
         }
-        setShowControls(true)
     }
 
     const handleTimeUpdate = () => {
-        if (videoRef.current) {
+        if (videoRef.current && !isNaN(videoRef.current.currentTime)) {
             setCurrentTime(videoRef.current.currentTime)
         }
     }
 
     const handleLoadedMetadata = () => {
-        if (videoRef.current) {
+        if (videoRef.current && !isNaN(videoRef.current.duration)) {
             setDuration(videoRef.current.duration)
         }
     }
 
     const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newTime = parseFloat(e.target.value)
-        if (videoRef.current) {
+        if (videoRef.current && !isNaN(newTime)) {
             videoRef.current.currentTime = newTime
             setCurrentTime(newTime)
         }
@@ -193,6 +284,7 @@ export default function VideoPlayerPage() {
         setVolume(newVolume)
         if (videoRef.current) {
             videoRef.current.volume = newVolume
+            videoRef.current.muted = false // Unmute when changing volume
         }
         setIsMuted(newVolume === 0)
         setShowControls(true)
@@ -202,10 +294,12 @@ export default function VideoPlayerPage() {
         if (videoRef.current) {
             if (isMuted) {
                 videoRef.current.volume = volume
+                videoRef.current.muted = false
                 setIsMuted(false)
                 showNotification('🔊 Sound on', 'info')
             } else {
                 videoRef.current.volume = 0
+                videoRef.current.muted = true
                 setIsMuted(true)
                 showNotification('🔇 Sound off', 'info')
             }
@@ -213,25 +307,34 @@ export default function VideoPlayerPage() {
         setShowControls(true)
     }
 
-    const toggleFullscreen = () => {
-        if (videoRef.current) {
+    const toggleFullscreen = async () => {
+        if (!videoRef.current) return
+
+        try {
             if (document.fullscreenElement) {
-                document.exitFullscreen()
+                await document.exitFullscreen()
                 setIsFullscreen(false)
                 showNotification('📱 Exit fullscreen', 'info')
             } else {
-                videoRef.current.requestFullscreen()
+                await videoRef.current.requestFullscreen()
                 setIsFullscreen(true)
                 showNotification('📺 Fullscreen mode', 'info')
             }
+        } catch (error) {
+            console.warn('Fullscreen error:', error)
+            showNotification('❌ Fullscreen not available', 'warning')
         }
         setShowControls(true)
     }
 
     const handleBack = () => {
-        // Cleanup HLS instance if exists
-        if (videoRef.current && (videoRef.current as any).hls) {
-            (videoRef.current as any).hls.destroy()
+        if (hlsRef.current) {
+            try {
+                hlsRef.current.destroy()
+            } catch (e) {
+                console.warn('HLS cleanup error:', e)
+            }
+            hlsRef.current = null
         }
         setCurrentPage('discover')
     }
@@ -255,22 +358,33 @@ export default function VideoPlayerPage() {
         updateUser({ favorites: newFavorites })
     }
 
-    const handleShare = () => {
-        const shareLink = `https://streamvid.pro/video/${currentVideo?.id}`
+    const handleShare = async () => {
+        const shareLink = `${window.location.origin}/video/${currentVideo?.id}`
 
-        if (navigator.share) {
-            navigator.share({
-                title: currentVideo?.title,
-                url: shareLink
-            }).catch(() => {
-                navigator.clipboard.writeText(shareLink).then(() => {
-                    showNotification('🔗 Video link copied to clipboard!', 'success')
+        try {
+            if (navigator.share) {
+                await navigator.share({
+                    title: currentVideo?.title,
+                    url: shareLink
                 })
-            })
-        } else {
-            navigator.clipboard.writeText(shareLink).then(() => {
-                showNotification('🔗 Video link copied to clipboard!', 'success')
-            })
+            } else {
+                await navigator.clipboard.writeText(shareLink)
+                showNotification('🔗 Video link copied!', 'success')
+            }
+        } catch (error) {
+            console.warn('Share failed:', error)
+            // Manual fallback
+            const textArea = document.createElement('textarea')
+            textArea.value = shareLink
+            document.body.appendChild(textArea)
+            textArea.select()
+            try {
+                document.execCommand('copy')
+                showNotification('🔗 Link copied to clipboard!', 'success')
+            } catch (e) {
+                showNotification('❌ Failed to copy link', 'error')
+            }
+            document.body.removeChild(textArea)
         }
     }
 
@@ -292,16 +406,8 @@ export default function VideoPlayerPage() {
         showNotification('💬 Comment posted!', 'success')
     }
 
-    const handlePreviousVideo = () => {
-        showNotification('⏮️ Previous video', 'info')
-    }
-
-    const handleNextVideo = () => {
-        showNotification('⏭️ Next video', 'info')
-    }
-
     const formatTime = (seconds: number) => {
-        if (isNaN(seconds)) return '0:00'
+        if (isNaN(seconds) || !isFinite(seconds)) return '0:00'
         const mins = Math.floor(seconds / 60)
         const secs = Math.floor(seconds % 60)
         return `${mins}:${secs.toString().padStart(2, '0')}`
@@ -360,7 +466,6 @@ export default function VideoPlayerPage() {
                 onMouseEnter={() => setShowControls(true)}
                 onMouseLeave={() => setTimeout(() => setShowControls(false), 1000)}
             >
-                {/* Video Element or Fallback */}
                 <div className={`relative ${isFullscreen ? 'h-screen' : 'h-96 md:h-[500px]'}`}>
                     {currentVideo.videoUrl && !videoError ? (
                         <video
@@ -370,17 +475,17 @@ export default function VideoPlayerPage() {
                             onLoadedMetadata={handleLoadedMetadata}
                             onPlay={() => setIsPlaying(true)}
                             onPause={() => setIsPlaying(false)}
-                            onError={(e) => {
-                                console.error('Video error:', e)
+                            onError={() => {
                                 setVideoError('Failed to load video')
-                                showNotification('❌ Video playback error', 'error')
+                                showNotification('❌ Video error', 'error')
                             }}
                             onClick={handlePlay}
                             playsInline
                             controls={false}
+                            preload="metadata"
+                            crossOrigin="anonymous"
                         />
                     ) : (
-                        // Fallback display for no video URL or error
                         <div
                             className="w-full h-full bg-gradient-to-br from-slate-800 via-purple-900 to-slate-800 flex items-center justify-center cursor-pointer"
                             onClick={handlePlay}
@@ -394,7 +499,7 @@ export default function VideoPlayerPage() {
                                     {videoError ? 'Video Unavailable' : 'Premium Video Player'}
                                 </h2>
                                 <p className="text-white/70 mt-2">
-                                    {videoError ? '❌ ' + videoError : (isPlaying ? '🎬 Playing...' : '⏸️ Paused')}
+                                    {videoError ? '❌ ' + videoError : 'Click to play'}
                                 </p>
                             </div>
                         </div>
@@ -410,14 +515,13 @@ export default function VideoPlayerPage() {
                         </div>
                     )}
 
-                    {/* Play/Pause Overlay */}
+                    {/* Play Overlay */}
                     {!isPlaying && !isLoading && (
                         <motion.div
                             className="absolute inset-0 flex items-center justify-center bg-black/30 cursor-pointer"
                             onClick={handlePlay}
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
                         >
                             <div className="w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
                                 <Play className="w-10 h-10 text-white ml-1" fill="white" />
@@ -425,13 +529,11 @@ export default function VideoPlayerPage() {
                         </motion.div>
                     )}
 
-                    {/* Video Controls Overlay */}
+                    {/* Controls */}
                     <motion.div
                         className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-6 transition-opacity duration-300 ${
                             showControls ? 'opacity-100' : 'opacity-0'
                         }`}
-                        initial={{ y: 100 }}
-                        animate={{ y: showControls ? 0 : 100 }}
                     >
                         {/* Progress Bar */}
                         <div className="mb-4">
@@ -439,12 +541,9 @@ export default function VideoPlayerPage() {
                                 type="range"
                                 min="0"
                                 max={duration || 100}
-                                value={currentTime}
+                                value={currentTime || 0}
                                 onChange={handleProgressChange}
                                 className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer slider"
-                                style={{
-                                    background: `linear-gradient(to right, #667eea 0%, #667eea ${duration ? (currentTime / duration) * 100 : 0}%, rgba(255,255,255,0.2) ${duration ? (currentTime / duration) * 100 : 0}%, rgba(255,255,255,0.2) 100%)`
-                                }}
                             />
                             <div className="flex justify-between text-sm text-white/70 mt-1">
                                 <span>{formatTime(currentTime)}</span>
@@ -455,43 +554,31 @@ export default function VideoPlayerPage() {
                         {/* Main Controls */}
                         <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-4">
-                                <motion.button
-                                    onClick={handlePreviousVideo}
-                                    className="p-2 glass rounded-full hover:bg-white/20 transition-colors"
-                                    whileHover={{ scale: 1.1 }}
-                                    whileTap={{ scale: 0.9 }}
+                                <button
+                                    onClick={() => showNotification('⏮️ Previous video', 'info')}
+                                    className="p-2 glass rounded-full hover:bg-white/20"
                                 >
                                     <SkipBack className="w-5 h-5" />
-                                </motion.button>
+                                </button>
 
-                                <motion.button
+                                <button
                                     onClick={handlePlay}
-                                    className="p-3 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full hover:from-purple-600 hover:to-pink-500 transition-all"
-                                    whileHover={{ scale: 1.1 }}
-                                    whileTap={{ scale: 0.9 }}
+                                    className="p-3 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full hover:from-purple-600 hover:to-pink-500"
                                 >
                                     {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
-                                </motion.button>
+                                </button>
 
-                                <motion.button
-                                    onClick={handleNextVideo}
-                                    className="p-2 glass rounded-full hover:bg-white/20 transition-colors"
-                                    whileHover={{ scale: 1.1 }}
-                                    whileTap={{ scale: 0.9 }}
+                                <button
+                                    onClick={() => showNotification('⏭️ Next video', 'info')}
+                                    className="p-2 glass rounded-full hover:bg-white/20"
                                 >
                                     <SkipForward className="w-5 h-5" />
-                                </motion.button>
+                                </button>
 
-                                {/* Volume Control */}
                                 <div className="flex items-center space-x-2">
-                                    <motion.button
-                                        onClick={toggleMute}
-                                        className="p-2 glass rounded-full hover:bg-white/20 transition-colors"
-                                        whileHover={{ scale: 1.1 }}
-                                        whileTap={{ scale: 0.9 }}
-                                    >
-                                        {isMuted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-                                    </motion.button>
+                                    <button onClick={toggleMute} className="p-2 glass rounded-full hover:bg-white/20">
+                                        {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                                    </button>
                                     <input
                                         type="range"
                                         min="0"
@@ -504,35 +591,20 @@ export default function VideoPlayerPage() {
                             </div>
 
                             <div className="flex items-center space-x-2">
-                                <motion.button
-                                    className="p-2 glass rounded-full hover:bg-white/20 transition-colors"
-                                    whileHover={{ scale: 1.1 }}
-                                    whileTap={{ scale: 0.9 }}
-                                >
+                                <button className="p-2 glass rounded-full hover:bg-white/20">
                                     <Settings className="w-5 h-5" />
-                                </motion.button>
-
-                                <motion.button
-                                    onClick={toggleFullscreen}
-                                    className="p-2 glass rounded-full hover:bg-white/20 transition-colors"
-                                    whileHover={{ scale: 1.1 }}
-                                    whileTap={{ scale: 0.9 }}
-                                >
+                                </button>
+                                <button onClick={toggleFullscreen} className="p-2 glass rounded-full hover:bg-white/20">
                                     <Maximize className="w-5 h-5" />
-                                </motion.button>
+                                </button>
                             </div>
                         </div>
                     </motion.div>
                 </div>
             </motion.div>
 
-            {/* Video Info & Actions */}
-            <motion.div
-                className="mb-8"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.2 }}
-            >
+            {/* Video Info */}
+            <motion.div className="mb-8">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4">
                     <div className="flex-1">
                         <h1 className="text-2xl md:text-3xl font-bold mb-2">{currentVideo.title}</h1>
@@ -543,27 +615,22 @@ export default function VideoPlayerPage() {
                         </div>
                     </div>
 
-                    {/* Action Buttons */}
                     <div className="flex items-center space-x-3 mt-4 md:mt-0">
-                        <motion.button
+                        <button
                             onClick={toggleLike}
-                            className="flex items-center space-x-2 px-4 py-2 glass rounded-full hover:bg-white/20 transition-colors"
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
+                            className="flex items-center space-x-2 px-4 py-2 glass rounded-full hover:bg-white/20"
                         >
                             <Heart className={`w-5 h-5 ${isLiked ? 'text-red-500 fill-red-500' : ''}`} />
                             <span className="text-sm font-medium">{likes}</span>
-                        </motion.button>
+                        </button>
 
-                        <motion.button
+                        <button
                             onClick={handleShare}
-                            className="flex items-center space-x-2 px-4 py-2 glass rounded-full hover:bg-white/20 transition-colors"
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
+                            className="flex items-center space-x-2 px-4 py-2 glass rounded-full hover:bg-white/20"
                         >
                             <Share2 className="w-5 h-5" />
                             <span className="text-sm font-medium">Share</span>
-                        </motion.button>
+                        </button>
                     </div>
                 </div>
 
@@ -577,18 +644,12 @@ export default function VideoPlayerPage() {
             </motion.div>
 
             {/* Comments Section */}
-            <motion.div
-                className="glass-enhanced rounded-2xl p-6"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.4 }}
-            >
+            <motion.div className="glass-enhanced rounded-2xl p-6">
                 <h3 className="text-xl font-bold mb-6 flex items-center space-x-2">
                     <MessageCircle className="w-5 h-5" />
                     <span>Comments ({comments.length})</span>
                 </h3>
 
-                {/* Add Comment */}
                 <div className="flex space-x-3 mb-6">
                     <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
                         <span className="text-sm">👤</span>
@@ -602,19 +663,16 @@ export default function VideoPlayerPage() {
                             className="flex-1 p-3 glass rounded-xl text-white placeholder-white/50 border border-white/20 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
                             onKeyPress={(e) => e.key === 'Enter' && handleAddComment()}
                         />
-                        <motion.button
+                        <button
                             onClick={handleAddComment}
                             className="btn-primary px-6 py-3 flex items-center space-x-2"
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
                         >
                             <Send className="w-4 h-4" />
                             <span>Post</span>
-                        </motion.button>
+                        </button>
                     </div>
                 </div>
 
-                {/* Comments List */}
                 <div className="space-y-6">
                     {comments.map((commentItem, index) => (
                         <motion.div
@@ -635,8 +693,6 @@ export default function VideoPlayerPage() {
                                     </span>
                                 </div>
                                 <p className="text-white/80 leading-relaxed">{commentItem.text}</p>
-
-                                {/* Comment Actions */}
                                 <div className="flex items-center space-x-4 mt-2">
                                     <button className="text-sm text-white/50 hover:text-white/80 transition-colors">
                                         👍 Like
@@ -649,18 +705,6 @@ export default function VideoPlayerPage() {
                         </motion.div>
                     ))}
                 </div>
-
-                {/* Load More Comments */}
-                {comments.length > 0 && (
-                    <motion.button
-                        className="w-full mt-6 py-3 glass rounded-xl hover:bg-white/10 transition-colors text-white/70"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => showNotification('📝 Loading more comments...', 'info')}
-                    >
-                        Load more comments
-                    </motion.button>
-                )}
             </motion.div>
         </div>
     )
