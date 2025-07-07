@@ -7,10 +7,10 @@ import { useAuth } from './context/AuthContext'
 
 // Pages
 import DiscoverPage from './pages/DiscoverPage'
-import BrowsePage from './pages/BrowsePage'
-import SearchPage from './pages/SearchPage'
+import CategoryPage from './pages/CategoryPage' // Updated from BrowsePage
 import FavoritesPage from './pages/FavoritesPage'
 import RewardsPage from './pages/RewardsPage'
+import AccountPage from './pages/AccountPage' // New page
 import VideoPlayerPage from './pages/VideoPlayerPage'
 
 // Modals
@@ -26,14 +26,14 @@ export default function Home() {
     switch (currentPage) {
       case 'discover':
         return <DiscoverPage />
-      case 'browse':
-        return <BrowsePage />
-      case 'search':
-        return <SearchPage />
-      case 'favorites':
+      case 'category': // Updated from 'browse'
+        return <CategoryPage />
+      case 'favorites': // Updated from 'search'
         return <FavoritesPage />
       case 'rewards':
         return <RewardsPage />
+      case 'account': // New page
+        return <AccountPage />
       case 'video-player':
         return <VideoPlayerPage />
       default:

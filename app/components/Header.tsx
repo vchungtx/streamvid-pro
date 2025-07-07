@@ -1,4 +1,3 @@
-// ===== APP/COMPONENTS/HEADER.TSX =====
 'use client'
 
 import React from 'react'
@@ -9,29 +8,15 @@ import { Bell, User, LogOut } from 'lucide-react'
 
 export default function Header() {
   const { user, logout } = useAuth()
-  const { showModal, currentPage, setCurrentPage } = useApp()
+  const { showModal, setCurrentPage, currentPage } = useApp()
 
   const navItems = [
     { id: 'discover', label: '🎬 Discover' },
-    { id: 'browse', label: '🎯 Browse' },
-    { id: 'search', label: '🔍 Search' },
-    { id: 'favorites', label: '💫 My List', requiresAuth: true },
-    { id: 'rewards', label: '🎁 Rewards', requiresAuth: true },
+    { id: 'category', label: '📂 Category' },
+    { id: 'favorites', label: '💖 Favorites' },
+    { id: 'rewards', label: '🎁 Rewards' },
+    { id: 'account', label: '👤 Account' },
   ]
-
-  const handleNavClick = (item: any) => {
-    if (item.requiresAuth && !user.isLoggedIn) {
-      showModal('login')
-      return
-    }
-
-    if (item.requiresAuth && !user.isRegistered) {
-      showModal('registration-required')
-      return
-    }
-
-    setCurrentPage(item.id)
-  }
 
   return (
       <motion.header
@@ -55,13 +40,14 @@ export default function Header() {
             </motion.div>
 
             {/* Desktop Navigation */}
-            <nav className="hidden lg:flex items-center space-x-8">
+            <nav className="hidden lg:flex items-center space-x-6">
               {navItems.map((item) => (
                   <NavLink
                       key={item.id}
-                      item={item}
+                      id={item.id}
+                      label={item.label}
                       isActive={currentPage === item.id}
-                      onClick={() => handleNavClick(item)}
+                      onClick={() => setCurrentPage(item.id)}
                   />
               ))}
             </nav>
@@ -72,28 +58,24 @@ export default function Header() {
                   className="p-2 glass rounded-full hover:bg-white/20 transition-colors"
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => showModal('notifications')}
               >
                 <Bell className="w-5 h-5" />
               </motion.button>
 
               {user.isLoggedIn ? (
                   <div className="flex items-center space-x-3">
-                    <div className="flex items-center space-x-2">
+                    <motion.button
+                        onClick={() => setCurrentPage('account')}
+                        className="flex items-center space-x-2 p-2 glass rounded-full hover:bg-white/20 transition-colors"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                    >
                       <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
                         <User className="w-4 h-4" />
                       </div>
-                      <span className="text-sm font-medium">
+                      <span className="text-sm font-medium hidden md:block">
                     User ****{user.phone?.slice(-4) || '0000'}
                   </span>
-                    </div>
-                    <motion.button
-                        onClick={logout}
-                        className="p-2 glass rounded-full hover:bg-white/20 transition-colors"
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                    >
-                      <LogOut className="w-4 h-4" />
                     </motion.button>
                   </div>
               ) : (
@@ -120,26 +102,23 @@ export default function Header() {
 }
 
 interface NavLinkProps {
-  item: {
-    id: string
-    label: string
-    requiresAuth?: boolean
-  }
+  id: string
+  label: string
   isActive: boolean
   onClick: () => void
 }
 
-function NavLink({ item, isActive, onClick }: NavLinkProps) {
+function NavLink({ id, label, isActive, onClick }: NavLinkProps) {
   return (
       <motion.button
           onClick={onClick}
-          className={`text-white/80 hover:text-white transition-colors font-medium px-3 py-2 rounded-lg ${
+          className={`text-white/80 hover:text-white transition-colors font-medium px-3 py-2 rounded-full ${
               isActive ? 'bg-white/10 text-white' : ''
           }`}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
       >
-        {item.label}
+        {label}
       </motion.button>
   )
 }

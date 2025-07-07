@@ -1,12 +1,10 @@
-// ===== APP/COMPONENTS/BOTTOMNAVIGATION.TSX =====
 'use client'
 
 import React from 'react'
 import { motion } from 'framer-motion'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
-import { useNotification } from './NotificationProvider'
-import { Home, Search, Heart, Gift, Grid3X3 } from 'lucide-react'
+import { Home, Grid3X3, Heart, Gift, User } from 'lucide-react'
 
 interface NavItem {
     id: string
@@ -18,41 +16,34 @@ interface NavItem {
 
 const navItems: NavItem[] = [
     { id: 'discover', label: 'Discover', icon: Home, emoji: '🎬' },
-    { id: 'browse', label: 'Browse', icon: Grid3X3, emoji: '🎯' },
-    { id: 'search', label: 'Search', icon: Search, emoji: '🔍' },
-    { id: 'favorites', label: 'My List', icon: Heart, emoji: '💫', requiresAuth: true },
+    { id: 'category', label: 'Category', icon: Grid3X3, emoji: '📂' },
+    { id: 'favorites', label: 'Favorites', icon: Heart, emoji: '💖', requiresAuth: true },
     { id: 'rewards', label: 'Rewards', icon: Gift, emoji: '🎁', requiresAuth: true },
+    { id: 'account', label: 'Account', icon: User, emoji: '👤' },
 ]
 
 export default function BottomNavigation() {
     const { currentPage, setCurrentPage, showModal } = useApp()
     const { user } = useAuth()
-    const { showNotification } = useNotification()
 
     const handleNavClick = (item: NavItem) => {
-        // Check authentication first
         if (item.requiresAuth && !user.isLoggedIn) {
             showModal('login')
-            showNotification('Please login to access this feature', 'warning')
             return
         }
 
-        // Check registration
-        if (item.requiresAuth && user.isLoggedIn && !user.isRegistered) {
+        if (item.requiresAuth && !user.isRegistered) {
             showModal('registration-required')
-            showNotification('Registration required for premium features', 'info')
             return
         }
 
-        // Navigate to page
         setCurrentPage(item.id)
-        showNotification(`📍 Navigated to ${item.label}`, 'success')
     }
 
     return (
         <div className="safe-bottom">
             <motion.nav
-                className="bottom-nav border-t border-white/30 px-2 py-2 shadow-2xl"
+                className="glass-enhanced border-t border-white/20 px-2 py-1"
                 initial={{ y: 100 }}
                 animate={{ y: 0 }}
                 transition={{ duration: 0.3 }}
@@ -101,13 +92,6 @@ export default function BottomNavigation() {
                                         layoutId="activeIndicator"
                                         style={{ x: '-50%' }}
                                     />
-                                )}
-
-                                {/* Lock indicator for auth-required items */}
-                                {item.requiresAuth && !user.isLoggedIn && (
-                                    <div className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center">
-                                        <span className="text-xs">🔒</span>
-                                    </div>
                                 )}
                             </motion.button>
                         )

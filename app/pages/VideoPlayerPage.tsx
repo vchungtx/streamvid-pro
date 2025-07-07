@@ -1,18 +1,18 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { motion } from 'framer-motion'
-import { ArrowLeft, Play, Pause, SkipBack, SkipForward, Heart, Share2, MessageCircle, Send, Volume2, VolumeX, Maximize, Settings } from 'lucide-react'
+import { motion, useMotionValue, useTransform, PanInfo } from 'framer-motion'
+import { ArrowLeft, Play, Pause, SkipBack, SkipForward, Heart, Share2, MessageCircle, Send, Volume2, VolumeX, Maximize, Settings, ChevronUp, ChevronDown } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { useNotification } from '../components/NotificationProvider'
 import { Video } from '../types'
+import { sampleVideos } from '../data'
 
 // ✅ Production-safe HLS import
 let Hls: any = null
 if (typeof window !== 'undefined') {
     try {
-        // Try static import first
         import('hls.js').then(module => {
             Hls = module.default
         }).catch(() => {
@@ -34,20 +34,35 @@ interface Comment {
 export default function VideoPlayerPage() {
     const videoRef = useRef<HTMLVideoElement>(null)
     const hlsRef = useRef<any>(null)
+
+    // Video state
+    const [currentVideoIndex, setCurrentVideoIndex] = useState(0)
     const [currentVideo, setCurrentVideo] = useState<Video | null>(null)
     const [isPlaying, setIsPlaying] = useState(false)
     const [isLiked, setIsLiked] = useState(false)
     const [likes, setLikes] = useState(127)
-    const [comment, setComment] = useState('')
+
+    // Player controls
     const [isMuted, setIsMuted] = useState(false)
     const [volume, setVolume] = useState(0.7)
     const [currentTime, setCurrentTime] = useState(0)
     const [duration, setDuration] = useState(0)
     const [isFullscreen, setIsFullscreen] = useState(false)
     const [showControls, setShowControls] = useState(true)
+
+    // Loading and errors
     const [isLoading, setIsLoading] = useState(false)
     const [videoError, setVideoError] = useState<string | null>(null)
     const [hlsLoaded, setHlsLoaded] = useState(false)
+
+    // TikTok-style features
+    const [isTikTokMode, setIsTikTokMode] = useState(false)
+    const [showVideoList, setShowVideoList] = useState(false)
+    const y = useMotionValue(0)
+    const opacity = useTransform(y, [-200, 0, 200], [0.8, 1, 0.8])
+
+    // Comments
+    const [comment, setComment] = useState('')
     const [comments, setComments] = useState<Comment[]>([
         {
             id: 1,
@@ -77,7 +92,6 @@ export default function VideoPlayerPage() {
     useEffect(() => {
         const loadHls = async () => {
             if (typeof window === 'undefined') return
-
             try {
                 if (!Hls) {
                     const hlsModule = await import('hls.js')
@@ -89,25 +103,31 @@ export default function VideoPlayerPage() {
                 setHlsLoaded(false)
             }
         }
-
         loadHls()
     }, [])
 
     // Auto-hide controls
     useEffect(() => {
-        if (showControls && isPlaying) {
-            const timer = setTimeout(() => {
-                setShowControls(false)
-            }, 3000)
+        if (showControls && isPlaying && !isTikTokMode) {
+            const timer = setTimeout(() => setShowControls(false), 3000)
             return () => clearTimeout(timer)
         }
-    }, [showControls, isPlaying])
+    }, [showControls, isPlaying, isTikTokMode])
 
     // Initialize video
     useEffect(() => {
         const videoData = sessionStorage.getItem('currentVideo')
         if (videoData) {
             const video = JSON.parse(videoData)
+            const index = sampleVideos.findIndex(v => v.id === video.id)
+            setCurrentVideoIndex(index >= 0 ? index : 0)
+        }
+    }, [])
+
+    // Load video when index changes
+    useEffect(() => {
+        const video = sampleVideos[currentVideoIndex]
+        if (video) {
             setCurrentVideo(video)
             setIsLiked(user.favorites.includes(video.id))
 
@@ -117,13 +137,11 @@ export default function VideoPlayerPage() {
                 })
             }
 
-            // Load video after HLS is ready
             if (video.videoUrl && videoRef.current) {
-                // Delay loading to ensure HLS is available
                 setTimeout(() => loadVideo(video.videoUrl), 1000)
             }
         }
-    }, [user.favorites, user.viewHistory, updateUser, hlsLoaded])
+    }, [currentVideoIndex, user.favorites, user.viewHistory, updateUser, hlsLoaded])
 
     // Cleanup on unmount
     useEffect(() => {
@@ -149,7 +167,6 @@ export default function VideoPlayerPage() {
         try {
             const video = videoRef.current
 
-            // Clean up previous HLS
             if (hlsRef.current) {
                 try {
                     hlsRef.current.destroy()
@@ -159,13 +176,11 @@ export default function VideoPlayerPage() {
                 hlsRef.current = null
             }
 
-            // Check if M3U8
             if (videoUrl.includes('.m3u8')) {
-                // ✅ Production-safe HLS handling
                 if (Hls && Hls.isSupported()) {
                     try {
                         const hls = new Hls({
-                            enableWorker: false, // ✅ Disable worker for production
+                            enableWorker: false,
                             lowLatencyMode: false,
                             backBufferLength: 30,
                             xhrSetup: (xhr: XMLHttpRequest) => {
@@ -179,13 +194,12 @@ export default function VideoPlayerPage() {
 
                         hls.on(Hls.Events.MANIFEST_PARSED, () => {
                             setIsLoading(false)
-                            showNotification('🎬 Video loaded successfully!', 'success')
+                            showNotification('🎬 Video loaded!', 'success')
                         })
 
                         hls.on(Hls.Events.ERROR, (event: any, data: any) => {
                             console.error('HLS Error:', data)
                             if (data.fatal) {
-                                // ✅ Fallback to direct video URL
                                 video.src = videoUrl
                                 setIsLoading(false)
                                 showNotification('⚠️ Using fallback player', 'warning')
@@ -193,28 +207,23 @@ export default function VideoPlayerPage() {
                         })
                     } catch (hlsError) {
                         console.error('HLS initialization error:', hlsError)
-                        // ✅ Fallback to native video
                         video.src = videoUrl
                         setIsLoading(false)
                     }
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    // Native HLS support (Safari)
                     video.src = videoUrl
                     setIsLoading(false)
                 } else {
-                    // ✅ Try direct URL as fallback
                     video.src = videoUrl
                     setIsLoading(false)
                     showNotification('⚠️ HLS not supported, using direct stream', 'warning')
                 }
             } else {
-                // Regular video file
                 video.src = videoUrl
                 video.load()
                 setIsLoading(false)
             }
 
-            // ✅ Add error handler
             video.onerror = () => {
                 setVideoError('Failed to load video')
                 setIsLoading(false)
@@ -229,7 +238,7 @@ export default function VideoPlayerPage() {
         }
     }
 
-    // ✅ Enhanced play handler for production
+    // ✅ Enhanced play handler
     const handlePlay = async () => {
         if (!videoRef.current) return
 
@@ -237,13 +246,11 @@ export default function VideoPlayerPage() {
             if (isPlaying) {
                 videoRef.current.pause()
             } else {
-                // ✅ Handle production autoplay restrictions
                 const playPromise = videoRef.current.play()
                 if (playPromise !== undefined) {
                     await playPromise.catch(error => {
                         console.warn('Autoplay prevented:', error)
                         showNotification('🔇 Click to enable sound and play', 'info')
-                        // Try muted autoplay
                         if (videoRef.current) {
                             videoRef.current.muted = true
                             return videoRef.current.play()
@@ -254,7 +261,58 @@ export default function VideoPlayerPage() {
             setShowControls(true)
         } catch (error) {
             console.error('Play failed:', error)
-            showNotification('❌ Playback failed. Try clicking play again.', 'warning')
+            showNotification('❌ Playback failed. Try again.', 'warning')
+        }
+    }
+
+    // 🆕 TikTok-style swipe handling
+    const handleSwipe = (info: PanInfo) => {
+        if (!isTikTokMode) return
+
+        const threshold = 100
+
+        if (info.offset.y < -threshold) {
+            // Swipe up - next video
+            nextVideo()
+            y.set(0)
+        } else if (info.offset.y > threshold) {
+            // Swipe down - previous video
+            prevVideo()
+            y.set(0)
+        } else {
+            y.set(0)
+        }
+    }
+
+    const nextVideo = () => {
+        const nextIndex = (currentVideoIndex + 1) % sampleVideos.length
+        setCurrentVideoIndex(nextIndex)
+        showNotification('⬆️ Next video', 'info')
+    }
+
+    const prevVideo = () => {
+        const prevIndex = currentVideoIndex === 0 ? sampleVideos.length - 1 : currentVideoIndex - 1
+        setCurrentVideoIndex(prevIndex)
+        showNotification('⬇️ Previous video', 'info')
+    }
+
+    // 🆕 Toggle TikTok mode
+    const toggleTikTokMode = () => {
+        setIsTikTokMode(!isTikTokMode)
+        if (!isTikTokMode) {
+            // Entering TikTok mode
+            if (window.innerWidth < 768) {
+                document.documentElement.requestFullscreen?.()
+            }
+            setIsFullscreen(true)
+            showNotification('📱 TikTok Mode ON - Swipe up/down to change videos!', 'success')
+        } else {
+            // Exiting TikTok mode
+            if (document.fullscreenElement) {
+                document.exitFullscreen?.()
+            }
+            setIsFullscreen(false)
+            showNotification('📺 Normal Mode ON', 'info')
         }
     }
 
@@ -284,7 +342,7 @@ export default function VideoPlayerPage() {
         setVolume(newVolume)
         if (videoRef.current) {
             videoRef.current.volume = newVolume
-            videoRef.current.muted = false // Unmute when changing volume
+            videoRef.current.muted = false
         }
         setIsMuted(newVolume === 0)
         setShowControls(true)
@@ -336,6 +394,12 @@ export default function VideoPlayerPage() {
             }
             hlsRef.current = null
         }
+
+        // Exit any fullscreen
+        if (document.fullscreenElement) {
+            document.exitFullscreen?.()
+        }
+
         setCurrentPage('discover')
     }
 
@@ -373,16 +437,15 @@ export default function VideoPlayerPage() {
             }
         } catch (error) {
             console.warn('Share failed:', error)
-            // Manual fallback
             const textArea = document.createElement('textarea')
             textArea.value = shareLink
             document.body.appendChild(textArea)
             textArea.select()
             try {
                 document.execCommand('copy')
-                showNotification('🔗 Link copied to clipboard!', 'success')
+                showNotification('🔗 Link copied!', 'success')
             } catch (e) {
-                showNotification('❌ Failed to copy link', 'error')
+                showNotification('❌ Failed to copy', 'error')
             }
             document.body.removeChild(textArea)
         }
@@ -444,18 +507,188 @@ export default function VideoPlayerPage() {
         )
     }
 
+    // 🆕 TikTok Mode Render
+    if (isTikTokMode) {
+        return (
+            <div className="fixed inset-0 bg-black z-50 overflow-hidden">
+                <motion.div
+                    className="relative w-full h-full"
+                    style={{ y, opacity }}
+                    drag="y"
+                    dragConstraints={{ top: 0, bottom: 0 }}
+                    dragElastic={0.2}
+                    onDragEnd={(_, info) => handleSwipe(info)}
+                >
+                    {/* Video Container */}
+                    <div className="relative w-full h-full">
+                        {currentVideo.videoUrl && !videoError ? (
+                            <video
+                                ref={videoRef}
+                                className="w-full h-full object-cover bg-black"
+                                onTimeUpdate={handleTimeUpdate}
+                                onLoadedMetadata={handleLoadedMetadata}
+                                onPlay={() => setIsPlaying(true)}
+                                onPause={() => setIsPlaying(false)}
+                                onClick={handlePlay}
+                                playsInline
+                                controls={false}
+                                autoPlay
+                                muted={isMuted}
+                                loop
+                            />
+                        ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-slate-800 via-purple-900 to-slate-800 flex items-center justify-center">
+                                <div className="text-center">
+                                    <div className="text-9xl mb-4">{currentVideo.thumbnail}</div>
+                                    <h2 className="text-3xl font-bold text-white/90">StreamVid Pro</h2>
+                                    <p className="text-white/70 mt-2">Swipe up/down to change videos</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Top Controls */}
+                        <div className="absolute top-0 left-0 right-0 z-20 p-4 bg-gradient-to-b from-black/50 to-transparent">
+                            <div className="flex items-center justify-between">
+                                <motion.button
+                                    onClick={() => toggleTikTokMode()}
+                                    className="p-3 glass rounded-full"
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                >
+                                    <ArrowLeft className="w-6 h-6" />
+                                </motion.button>
+
+                                <div className="text-center">
+                                    <h1 className="text-lg font-semibold truncate max-w-xs">
+                                        {currentVideo.title}
+                                    </h1>
+                                    <p className="text-sm text-white/70">
+                                        {currentVideoIndex + 1} / {sampleVideos.length}
+                                    </p>
+                                </div>
+
+                                <motion.button
+                                    onClick={() => setShowVideoList(!showVideoList)}
+                                    className="p-3 glass rounded-full"
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                >
+                                    <MessageCircle className="w-6 h-6" />
+                                </motion.button>
+                            </div>
+                        </div>
+
+                        {/* Side Actions (TikTok style) */}
+                        <div className="absolute right-4 bottom-20 flex flex-col space-y-4 z-20">
+                            <motion.button
+                                onClick={toggleLike}
+                                className="w-12 h-12 glass rounded-full flex flex-col items-center justify-center"
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                            >
+                                <Heart className={`w-6 h-6 ${isLiked ? 'text-red-500 fill-red-500' : 'text-white'}`} />
+                                <span className="text-xs text-white mt-1">{likes}</span>
+                            </motion.button>
+
+                            <motion.button
+                                onClick={handleShare}
+                                className="w-12 h-12 glass rounded-full flex items-center justify-center"
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                            >
+                                <Share2 className="w-6 h-6 text-white" />
+                            </motion.button>
+
+                            <motion.button
+                                onClick={toggleMute}
+                                className="w-12 h-12 glass rounded-full flex items-center justify-center"
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                            >
+                                {isMuted ? <VolumeX className="w-6 h-6 text-white" /> : <Volume2 className="w-6 h-6 text-white" />}
+                            </motion.button>
+                        </div>
+
+                        {/* Navigation Hints */}
+                        <div className="absolute left-4 top-1/2 transform -translate-y-1/2 flex flex-col space-y-8 z-20">
+                            <motion.button
+                                onClick={prevVideo}
+                                className="flex flex-col items-center space-y-2 text-white/70 hover:text-white"
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                            >
+                                <ChevronUp className="w-8 h-8" />
+                                <span className="text-xs">Previous</span>
+                            </motion.button>
+
+                            <motion.button
+                                onClick={nextVideo}
+                                className="flex flex-col items-center space-y-2 text-white/70 hover:text-white"
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                            >
+                                <ChevronDown className="w-8 h-8" />
+                                <span className="text-xs">Next</span>
+                            </motion.button>
+                        </div>
+
+                        {/* Bottom Info */}
+                        <div className="absolute bottom-0 left-0 right-0 z-20 p-4 bg-gradient-to-t from-black/80 to-transparent">
+                            <h2 className="text-xl font-bold mb-2">{currentVideo.title}</h2>
+                            <div className="flex items-center space-x-4 text-white/70 text-sm">
+                                <span>👁️ {currentVideo.views}</span>
+                                <span>📂 {currentVideo.category}</span>
+                            </div>
+                        </div>
+
+                        {/* Center Play Button */}
+                        {!isPlaying && (
+                            <motion.div
+                                className="absolute inset-0 flex items-center justify-center z-10"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                            >
+                                <motion.button
+                                    onClick={handlePlay}
+                                    className="w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center"
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                >
+                                    <Play className="w-10 h-10 text-white ml-1" fill="white" />
+                                </motion.button>
+                            </motion.div>
+                        )}
+                    </div>
+                </motion.div>
+            </div>
+        )
+    }
+
+    // 📺 Normal Mode Render
     return (
         <div className="max-w-6xl mx-auto px-4 py-8">
-            {/* Back Button */}
-            <motion.button
-                onClick={handleBack}
-                className="flex items-center space-x-2 mb-6 glass-enhanced px-4 py-2 rounded-xl hover:bg-white/20 transition-colors"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-            >
-                <ArrowLeft className="w-5 h-5" />
-                <span>Back to Browse</span>
-            </motion.button>
+            {/* Back Button & Mode Toggle */}
+            <div className="flex items-center justify-between mb-6">
+                <motion.button
+                    onClick={handleBack}
+                    className="flex items-center space-x-2 glass-enhanced px-4 py-2 rounded-xl hover:bg-white/20 transition-colors"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                >
+                    <ArrowLeft className="w-5 h-5" />
+                    <span>Back to Browse</span>
+                </motion.button>
+
+                <motion.button
+                    onClick={toggleTikTokMode}
+                    className="btn-primary px-4 py-2 flex items-center space-x-2"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                >
+                    <span>📱</span>
+                    <span>TikTok Mode</span>
+                </motion.button>
+            </div>
 
             {/* Video Player */}
             <motion.div
@@ -555,7 +788,7 @@ export default function VideoPlayerPage() {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-4">
                                 <button
-                                    onClick={() => showNotification('⏮️ Previous video', 'info')}
+                                    onClick={prevVideo}
                                     className="p-2 glass rounded-full hover:bg-white/20"
                                 >
                                     <SkipBack className="w-5 h-5" />
@@ -569,7 +802,7 @@ export default function VideoPlayerPage() {
                                 </button>
 
                                 <button
-                                    onClick={() => showNotification('⏭️ Next video', 'info')}
+                                    onClick={nextVideo}
                                     className="p-2 glass rounded-full hover:bg-white/20"
                                 >
                                     <SkipForward className="w-5 h-5" />
@@ -596,6 +829,13 @@ export default function VideoPlayerPage() {
                                 </button>
                                 <button onClick={toggleFullscreen} className="p-2 glass rounded-full hover:bg-white/20">
                                     <Maximize className="w-5 h-5" />
+                                </button>
+                                <button
+                                    onClick={toggleTikTokMode}
+                                    className="p-2 glass rounded-full hover:bg-white/20"
+                                    title="Switch to TikTok Mode"
+                                >
+                                    <span className="text-lg">📱</span>
                                 </button>
                             </div>
                         </div>
@@ -641,6 +881,39 @@ export default function VideoPlayerPage() {
                         </p>
                     </div>
                 )}
+            </motion.div>
+
+            {/* Video Playlist */}
+            <motion.div className="mb-8 glass-enhanced rounded-2xl p-6">
+                <h3 className="text-xl font-bold mb-4 flex items-center space-x-2">
+                    <span>🎬</span>
+                    <span>Up Next ({sampleVideos.length} videos)</span>
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {sampleVideos.slice(0, 6).map((video, index) => (
+                        <motion.button
+                            key={video.id}
+                            onClick={() => setCurrentVideoIndex(sampleVideos.findIndex(v => v.id === video.id))}
+                            className={`text-left p-3 glass rounded-xl hover:bg-white/10 transition-colors ${
+                                video.id === currentVideo.id ? 'ring-2 ring-blue-500' : ''
+                            }`}
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                        >
+                            <div className="flex items-center space-x-3">
+                                <div className="text-2xl">{video.thumbnail}</div>
+                                <div className="flex-1 min-w-0">
+                                    <h4 className="font-medium truncate">{video.title}</h4>
+                                    <p className="text-sm text-white/70">{video.views} views</p>
+                                </div>
+                                {video.id === currentVideo.id && (
+                                    <div className="text-blue-400">▶️</div>
+                                )}
+                            </div>
+                        </motion.button>
+                    ))}
+                </div>
             </motion.div>
 
             {/* Comments Section */}
