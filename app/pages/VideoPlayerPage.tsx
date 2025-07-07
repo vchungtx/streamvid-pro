@@ -138,7 +138,11 @@ export default function VideoPlayerPage() {
             }
 
             if (video.videoUrl && videoRef.current) {
-                setTimeout(() => loadVideo(video.videoUrl), 1000)
+                setTimeout(() => {
+                    if (video.videoUrl) {
+                        loadVideo(video.videoUrl)
+                    }
+                }, 1000)
             }
         }
     }, [currentVideoIndex, user.favorites, user.viewHistory, updateUser, hlsLoaded])
